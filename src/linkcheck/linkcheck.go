@@ -72,6 +72,6 @@ func main() {
 	}
 
 	if chkping {
-		ping.PingIPs(config.Ping.Host, pcount)
+		ping.PingHosts(config.Ping.Host, pcount, debug)
 	}
 }

@@ -31,7 +31,7 @@ type Stats struct {
 	LossPct  float64
 	Min      float64
 	Max      float64
-	Avg      float64
+	Mean     float64
 	Stddev   float64
 }
 
@@ -52,9 +52,15 @@ func NewPingStats(sent int, received int, etimes []float64) Stats {
 		}
 
 		total += etimes[i]
-		s.Avg = total / (float64(i) + 1.00)
+		s.Mean = total / (float64(i) + 1.00)
 	}
 
+	var sumofsquares float64
+	for _, val := range etimes {
+		sumofsquares += math.Pow(val-s.Mean, 2)
+	}
+
+	s.Stddev = math.Sqrt(sumofsquares / float64(len(etimes)-1))
 	return s
 }
 
@@ -104,7 +110,7 @@ func elapsedTime(start time.Time) float64 {
 	return t
 }
 
-func PingIPs(hosts []string, pcount int) {
+func PingHosts(hosts []string, pcount int, debug bool) {
 	if pcount == 0 {
 		fmt.Println("Ping tests disabled (0 packet ping count specified)")
 		return
@@ -116,12 +122,12 @@ func PingIPs(hosts []string, pcount int) {
 			return
 		}
 
-		sent, received, etimes := PingIP(host, raddr, pcount)
+		sent, received, etimes := PingIP(host, raddr, pcount, debug)
 		stats := NewPingStats(sent, received, etimes)
 
 		fmt.Println("\n--- " + host + " ping statistics ---")
 		fmt.Printf("%d packets transmitted, %d packets received, %.3f%% packet loss\n", stats.Sent, stats.Received, stats.LossPct)
-		fmt.Printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n\n\n", stats.Min, stats.Avg, stats.Max, stats.Stddev)
+		fmt.Printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n\n\n", stats.Min, stats.Mean, stats.Max, stats.Stddev)
 
 		if i < len(hosts)-1 {
 			time.Sleep(2 * time.Second)
@@ -129,7 +135,7 @@ func PingIPs(hosts []string, pcount int) {
 	}
 }
 
-func PingIP(hostname string, raddr *net.IPAddr, pcount int) (sent int, received int, etimes []float64) {
+func PingIP(hostname string, raddr *net.IPAddr, pcount int, debug bool) (sent int, received int, etimes []float64) {
 	// Make the IP connection to the destination host
 	ipconn, err := net.DialIP("ip4:icmp", nil, raddr)
 	if err != nil {
@@ -141,7 +147,10 @@ func PingIP(hostname string, raddr *net.IPAddr, pcount int) (sent int, received 
 	sendseq := 1
 	pingpktlen := 64
 
+	//if debug {
 	fmt.Printf("PING %s (%s): %d data bytes\n", hostname, raddr.String(), pingpktlen-8)
+	//}
+
 	for {
 		var check4reply bool
 		var etime float64
@@ -182,7 +191,9 @@ func PingIP(hostname string, raddr *net.IPAddr, pcount int) (sent int, received 
 			if err != nil {
 				// Could not read response packet
 				etime = elapsedTime(start)
-				fmt.Printf("%d bytes from %s: icmp_req=%d time=%.3f ms ERR: %s\n", n, raddr.IP, sendseq, etime, err.Error())
+				if debug {
+					fmt.Printf("%d bytes from %s: icmp_req=%d time=%.3f ms ERR: %s\n", n, raddr.IP, sendseq, etime, err.Error())
+				}
 				break
 			} else {
 				// Response was okay
@@ -197,10 +208,15 @@ func PingIP(hostname string, raddr *net.IPAddr, pcount int) (sent int, received 
 			rcvid, rcvseq := parsePingReply(resp)
 			if rcvid != sendid || rcvseq != sendseq {
 				etime = elapsedTime(start)
-				fmt.Printf("%d bytes from %s: icmp_req=%d time=%.3f ms ERR: Out of sequence (0x%x,0x%x)\n", n, raddr.IP, sendseq, etime, rcvid, rcvseq)
+				if debug {
+					fmt.Printf("%d bytes from %s: icmp_req=%d time=%.3f ms ERR: Out of sequence (0x%x,0x%x)\n", n, raddr.IP, sendseq, etime, rcvid, rcvseq)
+				}
 			} else {
+				// Packet reply came back okay
 				etime = elapsedTime(start)
-				fmt.Printf("%d bytes from %s: icmp_req=%d time=%.3f ms\n", n, raddr.IP, sendseq, etime)
+				if debug {
+					fmt.Printf("%d bytes from %s: icmp_req=%d time=%.3f ms\n", n, raddr.IP, sendseq, etime)
+				}
 				received++
 				etimes = append(etimes, etime)
 			}
